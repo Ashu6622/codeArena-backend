@@ -1,0 +1,28 @@
+{
+  "name": "codearena-backend",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "prepare": "husky",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format:check": "prettier --check .",
+    "db:format": "prisma format",
+    "db:validate": "prisma validate",
+    "db:generate": "prisma generate",
+    "quality": "npm run typecheck && npm run lint && npm run format:check && npm run db:validate"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.1",
+    "eslint": "^10.9.1",
+    "husky": "^9.1.7",
+    "prettier": "^3.9.6",
+    "prisma": "^6.19.3",
+    "typescript": "^6.0.3",
+    "typescript-eslint": "^8.69.0"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3",
+    "joi": "^18.2.5"
+  }
+}

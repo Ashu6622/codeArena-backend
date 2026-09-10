@@ -1,0 +1,129 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum Difficulty {
+  EASY
+  MEDIUM
+  HARD
+}
+
+enum Language {
+  JAVASCRIPT
+  PYTHON
+}
+
+enum SubmissionStatus {
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
+enum Verdict {
+  ACCEPTED
+  WRONG_ANSWER
+  TIME_LIMIT_EXCEEDED
+  RUNTIME_ERROR
+  COMPILE_ERROR
+  INTERNAL_ERROR
+}
+
+model User {
+  id           String       @id @default(uuid()) @db.Uuid
+  email        String       @unique
+  passwordHash String
+  name         String?
+  role         Role         @default(USER)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+  problems     Problem[]    @relation("ProblemCreator")
+  submissions  Submission[]
+
+  @@map("users")
+}
+
+model Problem {
+  id            String            @id @default(uuid()) @db.Uuid
+  title         String
+  slug          String            @unique
+  description   String
+  difficulty    Difficulty
+  timeLimitMs   Int
+  memoryLimitMb Int
+  isPublished   Boolean           @default(false)
+  createdById   String            @db.Uuid
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  createdBy     User              @relation("ProblemCreator", fields: [createdById], references: [id])
+  languages     ProblemLanguage[]
+  testCases     TestCase[]
+  submissions   Submission[]
+
+  @@index([isPublished])
+  @@index([createdById])
+  @@map("problems")
+}
+
+model ProblemLanguage {
+  id                String   @id @default(uuid()) @db.Uuid
+  problemId         String   @db.Uuid
+  language          Language
+  starterCode       String
+  functionSignature String?
+  executionTemplate String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  problem           Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@unique([problemId, language])
+  @@index([language])
+  @@map("problem_languages")
+}
+
+model TestCase {
+  id             String   @id @default(uuid()) @db.Uuid
+  problemId      String   @db.Uuid
+  input          String
+  expectedOutput String
+  isSample       Boolean  @default(false)
+  order          Int      @default(0)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+  problem        Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@index([problemId, isSample])
+  @@map("test_cases")
+}
+
+model Submission {
+  id            String           @id @default(uuid()) @db.Uuid
+  userId        String           @db.Uuid
+  problemId     String           @db.Uuid
+  language      Language
+  sourceCode    String
+  status        SubmissionStatus @default(RUNNING)
+  verdict       Verdict?
+  runtimeMs     Int?
+  memoryKb      Int?
+  compileOutput String?
+  runtimeError  String?
+  createdAt     DateTime         @default(now())
+  completedAt   DateTime?
+  user          User             @relation(fields: [userId], references: [id])
+  problem       Problem          @relation(fields: [problemId], references: [id])
+
+  @@index([userId, createdAt])
+  @@index([problemId])
+  @@index([status])
+  @@map("submissions")
+}
