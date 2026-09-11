@@ -6,6 +6,10 @@ export default tseslint.config(
   },
   ...tseslint.configs.recommended,
   {
+    files: ['tests/**/*.test.cjs'],
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+  {
     files: ['**/*.ts'],
     languageOptions: {
       parserOptions: {

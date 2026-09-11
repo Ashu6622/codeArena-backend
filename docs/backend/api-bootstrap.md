@@ -89,4 +89,4 @@ PostgreSQL, PrismaService, migrations, auth, users, problems, submissions, and e
 
 ## Next Step
 
-Add local PostgreSQL through Docker Compose, then create the NestJS Prisma module/service to connect the API to the database.
+The subsequent [Prisma setup](./prisma-setup.md) connects the API to locally installed PostgreSQL, without Docker.
