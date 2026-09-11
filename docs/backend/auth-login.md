@@ -40,7 +40,7 @@ Requires `Authorization: Bearer <accessToken>`. It verifies the token signature 
 
 Access tokens are signed with `JWT_ACCESS_SECRET` and expire according to `JWT_ACCESS_EXPIRES_IN`. Payload fields are `sub` (user ID), `email`, and `role`; passwords and password hashes are never included.
 
-The current access token is returned in JSON for the frontend to use in the Bearer header. Refresh tokens, token revocation, secure cookie handling, and logout are a separate feature.
+The current access token is returned in JSON for the frontend to use in the Bearer header. Login also starts the rotating session described in [Refresh Sessions and Logout](./auth-refresh-logout.md).
 
 ## Files
 
@@ -59,4 +59,4 @@ Verified during implementation: all 39 tests and the complete quality gate passe
 
 ## Next Step
 
-Add refresh-token sessions and logout. Refresh tokens should be stored only as hashes, rotated when used, and delivered to the browser through an HttpOnly cookie.
+Build the Problems module with public reads and admin-protected creation.

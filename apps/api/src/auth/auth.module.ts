@@ -6,11 +6,12 @@ import { PrismaModule } from '../prisma/prisma.module';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { PasswordService } from './password.service';
+import { RefreshTokenService } from './refresh-token.service';
 
 @Module({
   imports: [ConfigModule, JwtModule.register({}), PrismaModule],
   controllers: [AuthController],
-  providers: [AuthService, PasswordService, JwtAuthGuard],
+  providers: [AuthService, PasswordService, RefreshTokenService, JwtAuthGuard],
   exports: [JwtAuthGuard, JwtModule],
 })
 export class AuthModule {}

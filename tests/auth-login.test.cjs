@@ -17,12 +17,17 @@ describe('login and access-token authentication', () => {
       const values = {
         'jwt.accessSecret': accessSecret,
         'jwt.accessExpiresIn': '15m',
+        'jwt.refreshSecret': 'test-refresh-secret-with-at-least-32-characters',
+        'jwt.refreshExpiresIn': '7d',
       };
       if (!values[key]) throw new Error('Unknown test config: ' + key);
       return values[key];
     }),
   };
-  const prisma = { user: { findUnique: jest.fn() } };
+  const prisma = {
+    user: { findUnique: jest.fn() },
+    refreshSession: { create: jest.fn() },
+  };
   const publicUser = {
     id: '9a17a2d3-284d-4c52-8935-a27ee27cbd45',
     email: 'user@example.com',
@@ -59,6 +64,8 @@ describe('login and access-token authentication', () => {
 
   beforeEach(() => {
     prisma.user.findUnique.mockReset();
+    prisma.refreshSession.create.mockReset();
+    prisma.refreshSession.create.mockResolvedValue({ id: 'session-id' });
     prisma.user.findUnique.mockImplementation(({ where }) => {
       if (where.email === storedUser.email || where.id === storedUser.id) return storedUser;
       return null;
@@ -78,6 +85,15 @@ describe('login and access-token authentication', () => {
       user: { ...publicUser, createdAt: publicUser.createdAt.toISOString() },
     });
     expect(JSON.stringify(response.body)).not.toContain('passwordHash');
+    expect(response.headers['set-cookie'][0]).toMatch(
+      /^codearena_refresh=[A-Za-z0-9_-]+; Path=\/auth; Expires=.*; HttpOnly; SameSite=Lax$/,
+    );
+    const rawRefreshToken = response.headers['set-cookie'][0].match(
+      /^codearena_refresh=([^;]+)/,
+    )[1];
+    expect(rawRefreshToken).toHaveLength(43);
+    expect(JSON.stringify(prisma.refreshSession.create.mock.calls)).not.toContain(rawRefreshToken);
+    expect(prisma.refreshSession.create.mock.calls[0][0].data.tokenHash).toMatch(/^[a-f0-9]{64}$/);
     expect(prisma.user.findUnique).toHaveBeenCalledWith({
       where: { email: 'user@example.com' },
     });

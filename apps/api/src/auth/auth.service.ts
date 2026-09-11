@@ -7,6 +7,7 @@ import { AccessTokenPayload } from './auth.types';
 import { LoginDto } from './dto/login.dto';
 import { SignupDto } from './dto/signup.dto';
 import { PasswordService } from './password.service';
+import { RefreshTokenService } from './refresh-token.service';
 
 @Injectable()
 export class AuthService {
@@ -15,6 +16,7 @@ export class AuthService {
     @Inject(PasswordService) private readonly passwords: PasswordService,
     @Inject(JwtService) private readonly jwt: JwtService,
     @Inject(ConfigService) private readonly config: ConfigService,
+    @Inject(RefreshTokenService) private readonly refreshTokens: RefreshTokenService,
   ) {}
 
   async signup(dto: SignupDto) {
@@ -41,21 +43,24 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const expiresIn = this.config.getOrThrow<string>(
-      'jwt.accessExpiresIn',
-    ) as JwtSignOptions['expiresIn'];
-    const payload: AccessTokenPayload = { sub: user.id, email: user.email, role: user.role };
-    const accessToken = await this.jwt.signAsync(payload, {
-      secret: this.config.getOrThrow<string>('jwt.accessSecret'),
-      expiresIn,
-    });
-
+    const refreshToken = await this.refreshTokens.create(user.id);
     return {
-      accessToken,
-      tokenType: 'Bearer' as const,
-      expiresIn,
-      user: this.toPublicUser(user),
+      response: await this.createAccessResponse(user),
+      ...refreshToken,
     };
+  }
+
+  async refresh(rawToken: string) {
+    const refreshToken = await this.refreshTokens.rotate(rawToken);
+    return {
+      response: await this.createAccessResponse(refreshToken.user),
+      rawToken: refreshToken.rawToken,
+      expiresAt: refreshToken.expiresAt,
+    };
+  }
+
+  async logout(rawToken?: string): Promise<void> {
+    await this.refreshTokens.revoke(rawToken);
   }
 
   async getProfile(userId: string) {
@@ -83,6 +88,32 @@ export class AuthService {
       name: user.name,
       role: user.role,
       createdAt: user.createdAt,
+    };
+  }
+
+  private async createAccessResponse<
+    T extends {
+      id: string;
+      email: string;
+      name: string | null;
+      role: Role;
+      createdAt: Date;
+    },
+  >(user: T) {
+    const expiresIn = this.config.getOrThrow<string>(
+      'jwt.accessExpiresIn',
+    ) as JwtSignOptions['expiresIn'];
+    const payload: AccessTokenPayload = { sub: user.id, email: user.email, role: user.role };
+    const accessToken = await this.jwt.signAsync(payload, {
+      secret: this.config.getOrThrow<string>('jwt.accessSecret'),
+      expiresIn,
+    });
+
+    return {
+      accessToken,
+      tokenType: 'Bearer' as const,
+      expiresIn,
+      user: this.toPublicUser(user),
     };
   }
 }
