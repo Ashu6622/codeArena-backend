@@ -228,8 +228,10 @@ describe('POST /submissions', () => {
       verdict: 'COMPILE_ERROR',
     });
     expect(response.body.sampleResults[0].error).toEqual(expect.any(String));
-    expect(JSON.stringify(response.body)).not.toContain('99');
-    expect(JSON.stringify(response.body)).not.toContain('hidden-1');
+    expect(response.body.sampleResults).toHaveLength(1);
+    expect(response.body.sampleResults[0].testCaseId).toBe('sample-1');
+    expect(response.body.hiddenResults).toEqual({ passedCount: 0, totalCount: 1 });
+    expect(JSON.stringify(response.body.sampleResults)).not.toContain('hidden-1');
     expect(prisma.submission.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ verdict: 'COMPILE_ERROR' }) }),
     );
