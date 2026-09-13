@@ -39,16 +39,19 @@ enum Verdict {
 }
 
 model User {
-  id              String           @id @default(uuid()) @db.Uuid
-  email           String           @unique
-  passwordHash    String
-  name            String?
-  role            Role             @default(USER)
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  problems        Problem[]        @relation("ProblemCreator")
-  submissions     Submission[]
-  refreshSessions RefreshSession[]
+  id               String            @id @default(uuid()) @db.Uuid
+  email            String            @unique
+  passwordHash     String
+  name             String?
+  role             Role              @default(USER)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  problems         Problem[]         @relation("ProblemCreator")
+  submissions      Submission[]
+  problemNotes     ProblemNote[]
+  problemBookmarks ProblemBookmark[]
+  problemComments  ProblemComment[]
+  refreshSessions  RefreshSession[]
 
   @@map("users")
 }
@@ -85,10 +88,37 @@ model Problem {
   languages     ProblemLanguage[]
   testCases     TestCase[]
   submissions   Submission[]
+  tags          ProblemTag[]
+  notes         ProblemNote[]
+  bookmarks     ProblemBookmark[]
+  comments      ProblemComment[]
 
   @@index([isPublished])
   @@index([createdById])
   @@map("problems")
+}
+
+model Tag {
+  id        String       @id @default(uuid()) @db.Uuid
+  name      String
+  slug      String       @unique
+  createdAt DateTime     @default(now())
+  updatedAt DateTime     @updatedAt
+  problems  ProblemTag[]
+
+  @@map("tags")
+}
+
+model ProblemTag {
+  problemId String   @db.Uuid
+  tagId     String   @db.Uuid
+  createdAt DateTime @default(now())
+  problem   Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+  tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([problemId, tagId])
+  @@index([tagId])
+  @@map("problem_tags")
 }
 
 model ProblemLanguage {
@@ -120,6 +150,49 @@ model TestCase {
 
   @@index([problemId, isSample])
   @@map("test_cases")
+}
+
+model ProblemNote {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  problemId String   @db.Uuid
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem   Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, problemId])
+  @@index([problemId])
+  @@map("problem_notes")
+}
+
+model ProblemBookmark {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  problemId String   @db.Uuid
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem   Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, problemId])
+  @@index([problemId])
+  @@map("problem_bookmarks")
+}
+
+model ProblemComment {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  problemId String   @db.Uuid
+  content   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  problem   Problem  @relation(fields: [problemId], references: [id], onDelete: Cascade)
+
+  @@index([problemId, createdAt])
+  @@index([userId])
+  @@map("problem_comments")
 }
 
 model Submission {

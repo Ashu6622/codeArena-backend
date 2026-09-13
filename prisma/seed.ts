@@ -20,6 +20,15 @@ if (!password || password.length < 15 || password.length > 128) {
 const seedAdminEmail = email;
 const seedAdminPassword = password;
 
+const tags = [
+  { name: 'Array', slug: 'array' },
+  { name: 'String', slug: 'string' },
+  { name: 'Hash Map', slug: 'hash-map' },
+  { name: 'Binary Search', slug: 'binary-search' },
+  { name: 'Stack', slug: 'stack' },
+  { name: 'Sliding Window', slug: 'sliding-window' },
+] as const;
+
 const problems = [
   {
     title: 'Two Sum',
@@ -33,6 +42,7 @@ const problems = [
   // Return the two matching indices.
 }`,
     functionSignature: 'twoSum(nums: number[], target: number): number[]',
+    tagSlugs: ['array', 'hash-map'],
     testCases: [
       {
         input: '{"nums":[2,7,11,15],"target":9}',
@@ -62,6 +72,7 @@ const problems = [
   // Return true when the brackets are balanced.
 }`,
     functionSignature: 'isValid(s: string): boolean',
+    tagSlugs: ['string', 'stack'],
     testCases: [
       { input: '{"s":"()[]{}"}', expectedOutput: 'true', isSample: true, order: 0 },
       { input: '{"s":"(]"}', expectedOutput: 'false', isSample: true, order: 1 },
@@ -81,6 +92,7 @@ const problems = [
   // Return the target index, or -1.
 }`,
     functionSignature: 'search(nums: number[], target: number): number',
+    tagSlugs: ['array', 'binary-search'],
     testCases: [
       {
         input: '{"nums":[-1,0,3,5,9,12],"target":9}',
@@ -114,6 +126,18 @@ async function main(): Promise<void> {
     select: { id: true },
   });
 
+  const savedTags = await Promise.all(
+    tags.map((tag) =>
+      prisma.tag.upsert({
+        where: { slug: tag.slug },
+        update: { name: tag.name },
+        create: tag,
+        select: { id: true, slug: true },
+      }),
+    ),
+  );
+  const tagIdsBySlug = new Map(savedTags.map((tag) => [tag.slug, tag.id]));
+
   for (const problem of problems) {
     await prisma.$transaction(async (transaction) => {
       const saved = await transaction.problem.upsert({
@@ -142,6 +166,7 @@ async function main(): Promise<void> {
 
       await transaction.problemLanguage.deleteMany({ where: { problemId: saved.id } });
       await transaction.testCase.deleteMany({ where: { problemId: saved.id } });
+      await transaction.problemTag.deleteMany({ where: { problemId: saved.id } });
       await transaction.problemLanguage.create({
         data: {
           problemId: saved.id,
@@ -153,10 +178,18 @@ async function main(): Promise<void> {
       await transaction.testCase.createMany({
         data: problem.testCases.map((testCase) => ({ problemId: saved.id, ...testCase })),
       });
+      await transaction.problemTag.createMany({
+        data: problem.tagSlugs.map((slug) => ({
+          problemId: saved.id,
+          tagId: tagIdsBySlug.get(slug)!,
+        })),
+      });
     });
   }
 
-  console.log(`Seed complete: 1 admin and ${problems.length} published problems.`);
+  console.log(
+    `Seed complete: 1 admin, ${tags.length} tags, and ${problems.length} published problems.`,
+  );
 }
 
 main()

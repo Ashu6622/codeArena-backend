@@ -3,7 +3,6 @@ import { Difficulty, Language } from '@prisma/client';
 import {
   IsBoolean,
   IsEnum,
-  IsIn,
   IsInt,
   IsOptional,
   IsString,
@@ -13,10 +12,14 @@ import {
   Min,
 } from 'class-validator';
 
-export const problemProgressStatuses = ['SOLVED', 'ATTEMPTED', 'NOT_STARTED'] as const;
-export type ProblemProgressStatus = (typeof problemProgressStatuses)[number];
+function transformBoolean(value: unknown) {
+  if (value === undefined) return undefined;
+  if (value === true || value === 'true') return true;
+  if (value === false || value === 'false') return false;
+  return value;
+}
 
-export class ListProblemsQueryDto {
+export class AdminListProblemsQueryDto {
   @Transform(({ value }: { value: unknown }) => (value === undefined ? 1 : Number(value)))
   @IsInt()
   @Min(1)
@@ -43,6 +46,11 @@ export class ListProblemsQueryDto {
   language?: Language;
 
   @IsOptional()
+  @Transform(({ value }: { value: unknown }) => transformBoolean(value))
+  @IsBoolean()
+  isPublished?: boolean;
+
+  @IsOptional()
   @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MaxLength(100)
@@ -56,21 +64,4 @@ export class ListProblemsQueryDto {
   @MaxLength(80)
   @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
   tag?: string;
-
-  @IsOptional()
-  @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.trim().toUpperCase() : value,
-  )
-  @IsIn(problemProgressStatuses)
-  progressStatus?: ProblemProgressStatus;
-
-  @IsOptional()
-  @Transform(({ value }: { value: unknown }) => {
-    if (value === undefined) return undefined;
-    if (value === true || value === 'true') return true;
-    if (value === false || value === 'false') return false;
-    return value;
-  })
-  @IsBoolean()
-  bookmarked?: boolean;
 }

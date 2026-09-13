@@ -1,5 +1,5 @@
 import { Type, Transform } from 'class-transformer';
-import { Difficulty, Language } from '@prisma/client';
+import { Difficulty } from '@prisma/client';
 import {
   ArrayMaxSize,
   ArrayMinSize,
@@ -16,93 +16,64 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
+import { CreateProblemLanguageDto, CreateTestCaseDto } from './create-problem.dto';
 
-export class CreateProblemLanguageDto {
-  @IsEnum(Language)
-  language!: Language;
-
-  @IsString()
-  @Length(1, 20000)
-  starterCode!: string;
-
+export class UpdateProblemDto {
   @IsOptional()
-  @IsString()
-  @MaxLength(500)
-  functionSignature?: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(20000)
-  executionTemplate?: string;
-}
-
-export class CreateTestCaseDto {
-  @IsString()
-  @MaxLength(65536)
-  input!: string;
-
-  @IsString()
-  @MaxLength(65536)
-  expectedOutput!: string;
-
-  @IsBoolean()
-  isSample!: boolean;
-
-  @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(10000)
-  order?: number;
-}
-
-export class CreateProblemDto {
   @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @Length(3, 120)
-  title!: string;
+  title?: string;
 
+  @IsOptional()
   @Transform(({ value }: { value: unknown }) =>
     typeof value === 'string' ? value.trim().toLowerCase() : value,
   )
   @IsString()
   @Length(3, 120)
   @Matches(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-  slug!: string;
+  slug?: string;
 
+  @IsOptional()
   @IsString()
   @Length(20, 50000)
-  description!: string;
+  description?: string;
 
+  @IsOptional()
   @IsEnum(Difficulty)
-  difficulty!: Difficulty;
+  difficulty?: Difficulty;
 
+  @IsOptional()
   @IsInt()
   @Min(100)
   @Max(30000)
-  timeLimitMs!: number;
+  timeLimitMs?: number;
 
+  @IsOptional()
   @IsInt()
   @Min(16)
   @Max(1024)
-  memoryLimitMb!: number;
+  memoryLimitMb?: number;
 
   @IsOptional()
   @IsBoolean()
   isPublished?: boolean;
 
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(1)
   @ArrayMaxSize(5)
   @ValidateNested({ each: true })
   @Type(() => CreateProblemLanguageDto)
-  languages!: CreateProblemLanguageDto[];
+  languages?: CreateProblemLanguageDto[];
 
+  @IsOptional()
   @IsArray()
   @ArrayMinSize(2)
   @ArrayMaxSize(200)
   @ValidateNested({ each: true })
   @Type(() => CreateTestCaseDto)
-  testCases!: CreateTestCaseDto[];
+  testCases?: CreateTestCaseDto[];
 
   @IsOptional()
   @IsArray()

@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { AuthenticatedUser } from '../auth/auth.types';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { ListSubmissionsQueryDto } from './dto/list-submissions-query.dto';
+import { SubmissionActivityQueryDto } from './dto/submission-activity-query.dto';
 import { SubmissionIdParamDto } from './dto/submission-id-param.dto';
 import { SubmissionsService } from './submissions.service';
 
@@ -37,6 +38,30 @@ export class SubmissionsController {
     query: ListSubmissionsQueryDto,
   ) {
     return this.submissions.list(user.sub, query);
+  }
+
+  @Get('stats')
+  @UseGuards(JwtAuthGuard)
+  stats(@CurrentUser() user: AuthenticatedUser) {
+    return this.submissions.stats(user.sub);
+  }
+
+  @Get('activity')
+  @UseGuards(JwtAuthGuard)
+  activity(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query(
+      new ValidationPipe({
+        expectedType: SubmissionActivityQueryDto,
+        transform: true,
+        whitelist: true,
+        forbidNonWhitelisted: true,
+        validationError: { target: false, value: false },
+      }),
+    )
+    query: SubmissionActivityQueryDto,
+  ) {
+    return this.submissions.activity(user.sub, query);
   }
 
   @Get(':id')

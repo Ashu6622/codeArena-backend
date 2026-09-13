@@ -315,6 +315,86 @@ describe('POST /submissions', () => {
     });
   });
 
+  it('returns summary stats for the current user', async () => {
+    const token = await accessToken();
+    prisma.submission.findMany.mockResolvedValue([
+      { problemId: 'problem-a', verdict: 'ACCEPTED' },
+      { problemId: 'problem-a', verdict: 'WRONG_ANSWER' },
+      { problemId: 'problem-b', verdict: 'WRONG_ANSWER' },
+      { problemId: 'problem-c', verdict: 'ACCEPTED' },
+    ]);
+
+    const response = await request(app.getHttpServer())
+      .get('/submissions/stats')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body).toEqual({
+      solvedCount: 2,
+      attemptedCount: 3,
+      submissionCount: 4,
+      acceptedSubmissionCount: 2,
+      acceptanceRate: 50,
+    });
+    expect(prisma.submission.findMany).toHaveBeenCalledWith({
+      where: { userId },
+      select: { problemId: true, verdict: true },
+    });
+  });
+
+  it('returns daily submission activity for the current user', async () => {
+    const token = await accessToken();
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const yesterday = new Date(today);
+    yesterday.setUTCDate(today.getUTCDate() - 1);
+    const dateKey = (date) => date.toISOString().slice(0, 10);
+    prisma.submission.findMany.mockResolvedValue([
+      { createdAt: new Date(yesterday.getTime() + 3 * 60 * 60 * 1000) },
+      { createdAt: new Date(yesterday.getTime() + 18 * 60 * 60 * 1000) },
+      { createdAt: new Date(today.getTime() + 60 * 60 * 1000) },
+    ]);
+
+    const response = await request(app.getHttpServer())
+      .get('/submissions/activity?days=3')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(response.body).toEqual({
+      from: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      to: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      totalSubmissions: expect.any(Number),
+      maxCount: expect.any(Number),
+      days: expect.arrayContaining([
+        { date: dateKey(yesterday), count: 2 },
+        { date: dateKey(today), count: 1 },
+      ]),
+    });
+    expect(response.body.days).toHaveLength(3);
+    expect(response.body.totalSubmissions).toBeGreaterThanOrEqual(3);
+    expect(response.body.maxCount).toBeGreaterThanOrEqual(2);
+    expect(prisma.submission.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId,
+          createdAt: expect.objectContaining({ gte: expect.any(Date), lt: expect.any(Date) }),
+        }),
+        select: { createdAt: true },
+        orderBy: { createdAt: 'asc' },
+      }),
+    );
+  });
+
+  it('protects and validates submission activity requests', async () => {
+    const token = await accessToken();
+    await request(app.getHttpServer()).get('/submissions/stats').expect(401);
+    await request(app.getHttpServer()).get('/submissions/activity').expect(401);
+    await request(app.getHttpServer())
+      .get('/submissions/activity?days=367')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(400);
+  });
+
   it('returns one owned submission with source code', async () => {
     const token = await accessToken();
     prisma.submission.findFirst.mockResolvedValue({

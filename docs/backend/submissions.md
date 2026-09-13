@@ -16,6 +16,14 @@ Requires a valid access token. Returns only the current user's submissions. Quer
 
 List items include submission metadata, verdict, runtime, timestamps, and basic problem metadata. Source code is omitted from the list response.
 
+### GET /submissions/activity
+
+Requires a valid access token. Returns a daily submission count series for the current user. Query parameters:
+
+- `days`: 1 to 366, default 365.
+
+The response includes `from`, `to`, `totalSubmissions`, `maxCount`, and a zero-filled `days` array shaped as `{ date, count }`. This powers the profile activity heatmap.
+
 ### GET /submissions/:id
 
 Requires a valid access token. Returns one submission owned by the current user. The detail response includes `sourceCode`, compile/runtime error fields, timestamps, and problem metadata. Unknown submissions and submissions owned by another user both return HTTP 404.
@@ -114,6 +122,7 @@ Overall verdict priority is compile error, time limit exceeded, runtime error, w
 - `apps/api/src/submissions/dto/create-submission.dto.ts`: submit request validation.
 - `apps/api/src/submissions/dto/list-submissions-query.dto.ts`: history pagination and filter validation.
 - `apps/api/src/submissions/dto/submission-id-param.dto.ts`: detail route UUID validation.
+- `apps/api/src/submissions/dto/submission-activity-query.dto.ts`: activity range validation.
 - `apps/api/src/submissions/submissions.controller.ts`: protected `POST /submissions` route.
 - `apps/api/src/submissions/submissions.service.ts`: full-case judging, persistence, privacy filtering, and verdict aggregation.
 - `apps/api/src/submissions/submissions.module.ts`: module wiring.
@@ -136,7 +145,7 @@ This still uses the local V1 JavaScript runner. It is good enough for local deve
 
 ## Verification
 
-Ran `npm run quality`. The full backend quality gate passed with 77 tests, including auth enforcement, persistence, accepted submissions, wrong answers, compile errors, list pagination/filtering, owned detail lookup, validation failures, missing problems, unsafe problem config, and hidden-case privacy.
+Ran `npm run quality`. The full backend quality gate passed with 79 tests, including auth enforcement, persistence, accepted submissions, wrong answers, compile errors, activity aggregation, list pagination/filtering, owned detail lookup, validation failures, missing problems, unsafe problem config, and hidden-case privacy.
 
 ## Next Step
 

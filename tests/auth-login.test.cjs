@@ -27,6 +27,7 @@ describe('login and access-token authentication', () => {
   const prisma = {
     user: { findUnique: jest.fn() },
     refreshSession: { create: jest.fn() },
+    problemBookmark: { findMany: jest.fn() },
   };
   const publicUser = {
     id: '9a17a2d3-284d-4c52-8935-a27ee27cbd45',
@@ -65,7 +66,9 @@ describe('login and access-token authentication', () => {
   beforeEach(() => {
     prisma.user.findUnique.mockReset();
     prisma.refreshSession.create.mockReset();
+    prisma.problemBookmark.findMany.mockReset();
     prisma.refreshSession.create.mockResolvedValue({ id: 'session-id' });
+    prisma.problemBookmark.findMany.mockResolvedValue([]);
     prisma.user.findUnique.mockImplementation(({ where }) => {
       if (where.email === storedUser.email || where.id === storedUser.id) return storedUser;
       return null;
@@ -150,6 +153,56 @@ describe('login and access-token authentication', () => {
       where: { id: publicUser.id },
       select: { id: true, email: true, name: true, role: true, createdAt: true },
     });
+  });
+
+  it('returns saved bookmarked problems for the current user', async () => {
+    prisma.problemBookmark.findMany.mockResolvedValue([
+      {
+        id: 'bookmark-id',
+        createdAt: new Date('2026-09-12T11:00:00.000Z'),
+        problem: {
+          id: 'problem-id',
+          title: 'Two Sum',
+          slug: 'two-sum',
+          difficulty: 'EASY',
+          timeLimitMs: 1000,
+          memoryLimitMb: 128,
+          tags: [{ tag: { id: 'tag-array-id', name: 'Array', slug: 'array' } }],
+          submissions: [{ verdict: 'WRONG_ANSWER' }],
+        },
+      },
+    ]);
+    const token = await jwt.signAsync(
+      { sub: publicUser.id, email: publicUser.email, role: publicUser.role },
+      { secret: accessSecret, expiresIn: '15m' },
+    );
+
+    const response = await request(app.getHttpServer())
+      .get('/me/bookmarks')
+      .set('Authorization', 'Bearer ' + token)
+      .expect(200);
+
+    expect(response.body).toEqual({
+      items: [
+        {
+          id: 'problem-id',
+          title: 'Two Sum',
+          slug: 'two-sum',
+          difficulty: 'EASY',
+          timeLimitMs: 1000,
+          memoryLimitMb: 128,
+          bookmarkedAt: '2026-09-12T11:00:00.000Z',
+          progressStatus: 'ATTEMPTED',
+          tags: [{ id: 'tag-array-id', name: 'Array', slug: 'array' }],
+        },
+      ],
+    });
+    expect(prisma.problemBookmark.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: publicUser.id, problem: { isPublished: true } },
+        orderBy: { createdAt: 'desc' },
+      }),
+    );
   });
 
   it.each([

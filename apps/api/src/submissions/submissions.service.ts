@@ -4,6 +4,7 @@ import { Language, SubmissionStatus, Verdict } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { ListSubmissionsQueryDto } from './dto/list-submissions-query.dto';
+import { SubmissionActivityQueryDto } from './dto/submission-activity-query.dto';
 import { JavaScriptRunnerService } from '../execution/javascript-runner.service';
 
 type Comparable = { comparable: string; display: string };
@@ -74,6 +75,72 @@ export class SubmissionsService {
         total,
         totalPages: Math.ceil(total / query.limit),
       },
+    };
+  }
+
+  async stats(userId: string) {
+    const submissions = await this.prisma.submission.findMany({
+      where: { userId },
+      select: { problemId: true, verdict: true },
+    });
+    const attemptedProblemIds = new Set<string>();
+    const solvedProblemIds = new Set<string>();
+    let acceptedSubmissionCount = 0;
+
+    for (const submission of submissions) {
+      attemptedProblemIds.add(submission.problemId);
+      if (submission.verdict === Verdict.ACCEPTED) {
+        solvedProblemIds.add(submission.problemId);
+        acceptedSubmissionCount += 1;
+      }
+    }
+
+    const submissionCount = submissions.length;
+    const acceptanceRate =
+      submissionCount === 0 ? 0 : Math.round((acceptedSubmissionCount / submissionCount) * 100);
+
+    return {
+      solvedCount: solvedProblemIds.size,
+      attemptedCount: attemptedProblemIds.size,
+      submissionCount,
+      acceptedSubmissionCount,
+      acceptanceRate,
+    };
+  }
+
+  async activity(userId: string, query: SubmissionActivityQueryDto) {
+    const today = this.startOfUtcDay(new Date());
+    const from = this.addUtcDays(today, -(query.days - 1));
+    const toExclusive = this.addUtcDays(today, 1);
+    const submissions = await this.prisma.submission.findMany({
+      where: {
+        userId,
+        createdAt: { gte: from, lt: toExclusive },
+      },
+      select: { createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    const counts = new Map<string, number>();
+
+    for (const submission of submissions) {
+      const key = this.toDateKey(submission.createdAt);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+
+    const days = Array.from({ length: query.days }, (_, index) => {
+      const date = this.addUtcDays(from, index);
+      const key = this.toDateKey(date);
+      return { date: key, count: counts.get(key) ?? 0 };
+    });
+    const totalSubmissions = days.reduce((total, day) => total + day.count, 0);
+    const maxCount = days.reduce((max, day) => Math.max(max, day.count), 0);
+
+    return {
+      from: this.toDateKey(from),
+      to: this.toDateKey(today),
+      totalSubmissions,
+      maxCount,
+      days,
     };
   }
 
@@ -267,6 +334,20 @@ export class SubmissionsService {
         totalCount: hiddenResults.length,
       },
     };
+  }
+
+  private startOfUtcDay(value: Date): Date {
+    return new Date(Date.UTC(value.getUTCFullYear(), value.getUTCMonth(), value.getUTCDate()));
+  }
+
+  private addUtcDays(value: Date, days: number): Date {
+    const next = new Date(value);
+    next.setUTCDate(next.getUTCDate() + days);
+    return next;
+  }
+
+  private toDateKey(value: Date): string {
+    return value.toISOString().slice(0, 10);
   }
 
   private parseFunctionSignature(signature: string): {
