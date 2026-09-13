@@ -162,6 +162,42 @@ describe('POST /run', () => {
     });
   });
 
+  it('enforces the configured output limit without crashing the API', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/run')
+      .send({
+        problemSlug: 'two-sum',
+        language: 'JAVASCRIPT',
+        code: "function twoSum() { return 'x'.repeat(2048); }",
+      })
+      .expect(201);
+
+    expect(response.body.verdict).toBe('RUNTIME_ERROR');
+    expect(response.body.passed).toBe(false);
+    expect(response.body.results[0]).toMatchObject({
+      passed: false,
+      verdict: 'RUNTIME_ERROR',
+      error: 'Output limit exceeded',
+    });
+    expect(response.body.results[0].error).not.toContain('/Users/');
+  });
+
+  it('fails memory-heavy code cleanly inside the runner boundary', async () => {
+    const response = await request(app.getHttpServer())
+      .post('/run')
+      .send({
+        problemSlug: 'two-sum',
+        language: 'JAVASCRIPT',
+        code: 'function twoSum() { const values = []; while (true) values.push(new Array(100000).fill("x")); }',
+      })
+      .expect(201);
+
+    expect(response.body.passed).toBe(false);
+    expect(['RUNTIME_ERROR', 'TIME_LIMIT_EXCEEDED']).toContain(response.body.verdict);
+    expect(['RUNTIME_ERROR', 'TIME_LIMIT_EXCEEDED']).toContain(response.body.results[0].verdict);
+    expect(JSON.stringify(response.body)).not.toContain('/Users/');
+  });
+
   it('returns 404 for draft or unknown problems', async () => {
     prisma.problem.findFirst.mockResolvedValue(null);
     await request(app.getHttpServer())

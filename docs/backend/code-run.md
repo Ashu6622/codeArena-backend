@@ -31,7 +31,7 @@ The endpoint:
 - Loads only sample test cases with `isSample: true`.
 - Parses sample inputs as JSON.
 - Extracts the function name and argument order from `functionSignature`.
-- Runs each sample case in a worker thread using Node's `vm` timeout.
+- Runs each sample case in a separate Node child process using a restricted `vm` context and parent-enforced timeout.
 - Returns per-sample pass/fail results, expected output, actual output, runtime, and verdict.
 
 Hidden test cases are never loaded or returned by this endpoint.
@@ -84,7 +84,7 @@ Overall verdict priority is compile error, time limit exceeded, runtime error, w
 - `apps/api/src/execution/dto/run-code.dto.ts`: request validation.
 - `apps/api/src/execution/execution.controller.ts`: `POST /run` route.
 - `apps/api/src/execution/execution.service.ts`: problem lookup, sample case loading, argument mapping, and verdict aggregation.
-- `apps/api/src/execution/javascript-runner.service.ts`: JavaScript worker and `vm` runner.
+- `apps/api/src/execution/javascript-runner.service.ts`: JavaScript child-process runner and `vm` execution context.
 - `apps/api/src/execution/execution.module.ts`: module wiring.
 - `apps/api/src/app.module.ts`: root module registration.
 - `tests/execution.test.cjs`: HTTP and runner behavior coverage.
@@ -99,13 +99,19 @@ The runner uses existing env values:
 
 For each problem, runtime and memory are capped by the smaller value between the problem limits and the configured execution limits.
 
+The runner also enforces response-size safety:
+
+- Returned solution output is limited by `EXECUTION_MAX_OUTPUT_BYTES`.
+- Runner protocol stdout has a small extra allowance so malformed runner output cannot grow unbounded.
+- Runner stderr is truncated before it can be returned as an error summary.
+
 ## Security Notes
 
-This is a local V1 sample runner, not the final production judge sandbox. It uses a worker thread and `vm` timeout to stop runaway JavaScript and isolate the run from the Nest request thread. Before untrusted public deployment, execution should move to a stronger sandbox such as containerized workers, microVMs, or a dedicated judge service with stricter filesystem, network, CPU, and memory isolation.
+This is a local V1 sample runner, not the final production judge sandbox. It executes submitted JavaScript in a separate Node child process, applies a Node heap limit, uses a `vm` timeout for the function call, and lets the Nest parent process kill the child when the request exceeds the configured time limit. Before untrusted public deployment, execution should move to a stronger sandbox such as containerized workers, microVMs, or a dedicated judge service with stricter filesystem, network, CPU, and memory isolation.
 
 ## Verification
 
-Ran `npm run quality`. The full backend quality gate passed with 69 tests. Coverage includes accepted runs, wrong answers, compile errors, runtime errors, timeouts, validation failures, unsupported languages, missing problems, non-executable problem config, and sample-only test case selection.
+Ran `npm run quality`. The full backend quality gate passed. Coverage includes accepted runs, wrong answers, compile errors, runtime errors, timeouts, output-limit failures, memory-heavy execution failures, validation failures, unsupported languages, missing problems, non-executable problem config, and sample-only test case selection.
 
 ## Next Step
 

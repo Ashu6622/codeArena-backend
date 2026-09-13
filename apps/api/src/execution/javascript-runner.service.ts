@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Verdict } from '@prisma/client';
-import { Worker } from 'node:worker_threads';
+import { spawn } from 'node:child_process';
+import { tmpdir } from 'node:os';
 
 export type JavaScriptRunnerInput = {
   code: string;
@@ -18,13 +19,16 @@ export type JavaScriptRunnerResult = {
   runtimeMs: number;
 };
 
-type WorkerMessage =
+type ChildMessage =
   | { ok: true; actualOutput: string; runtimeMs: number }
   | { ok: false; verdict: Verdict; error: string; runtimeMs: number };
 
-const WORKER_SOURCE = `
-const { parentPort, workerData } = require('node:worker_threads');
+const CHILD_RUNNER_SOURCE = String.raw`
 const vm = require('node:vm');
+
+function send(message) {
+  process.stdout.write(JSON.stringify(message));
+}
 
 function serializeOutput(value, maxOutputBytes) {
   if (value && typeof value.then === 'function') {
@@ -42,46 +46,82 @@ function serializeOutput(value, maxOutputBytes) {
   return normalized;
 }
 
-try {
-  const started = process.hrtime.bigint();
-  const context = vm.createContext({
-    __args: workerData.args,
-    __result: undefined,
-    console: { log() {}, error() {}, warn() {} },
-  });
-  const source = String(workerData.code) + '\\n' +
-    'if (typeof ' + workerData.functionName + ' !== "function") { throw new Error("Expected function ' + workerData.functionName + ' to be defined"); }\\n' +
-    '__result = ' + workerData.functionName + '(...__args);';
-  const script = new vm.Script(source);
-  script.runInContext(context, { timeout: workerData.timeoutMs });
-  const actualOutput = serializeOutput(context.__result, workerData.maxOutputBytes);
-  const runtimeMs = Number((process.hrtime.bigint() - started) / 1000000n);
-  parentPort.postMessage({ ok: true, actualOutput, runtimeMs });
-} catch (error) {
-  const message = error && typeof error.message === 'string' ? error.message : 'JavaScript execution failed';
-  const verdict = error instanceof SyntaxError
-    ? 'COMPILE_ERROR'
-    : message.includes('Script execution timed out')
-      ? 'TIME_LIMIT_EXCEEDED'
-      : 'RUNTIME_ERROR';
-  parentPort.postMessage({ ok: false, verdict, error: message, runtimeMs: 0 });
+function verdictFor(error) {
+  const message = error && typeof error.message === 'string'
+    ? error.message
+    : 'JavaScript execution failed';
+  if (error instanceof SyntaxError) return 'COMPILE_ERROR';
+  if (message.includes('Script execution timed out')) return 'TIME_LIMIT_EXCEEDED';
+  return 'RUNTIME_ERROR';
 }
+
+let payload = '';
+process.stdin.setEncoding('utf8');
+process.stdin.on('data', (chunk) => {
+  payload += chunk;
+});
+process.stdin.on('end', () => {
+  const started = process.hrtime.bigint();
+  try {
+    const input = JSON.parse(payload);
+    const functionName = String(input.functionName);
+    if (!/^[A-Za-z_$][\w$]*$/.test(functionName)) {
+      throw new Error('Invalid function name');
+    }
+
+    const context = vm.createContext({
+      __args: input.args,
+      __result: undefined,
+      console: { log() {}, error() {}, warn() {} },
+    });
+    const source = String(input.code) + '\n' +
+      'if (typeof ' + functionName + ' !== "function") { throw new Error("Expected function ' + functionName + ' to be defined"); }\n' +
+      '__result = ' + functionName + '(...__args);';
+
+    const script = new vm.Script(source);
+    script.runInContext(context, { timeout: input.timeoutMs });
+    const actualOutput = serializeOutput(context.__result, input.maxOutputBytes);
+    const runtimeMs = Number((process.hrtime.bigint() - started) / 1000000n);
+    send({ ok: true, actualOutput, runtimeMs });
+  } catch (error) {
+    const message = error && typeof error.message === 'string'
+      ? error.message
+      : 'JavaScript execution failed';
+    const runtimeMs = Number((process.hrtime.bigint() - started) / 1000000n);
+    send({ ok: false, verdict: verdictFor(error), error: message, runtimeMs });
+  }
+});
 `;
 
 @Injectable()
 export class JavaScriptRunnerService {
   run(input: JavaScriptRunnerInput): Promise<JavaScriptRunnerResult> {
     const started = process.hrtime.bigint();
+    const memoryLimitMb = Math.max(16, Math.floor(input.memoryLimitMb));
+    const stdoutLimitBytes = input.maxOutputBytes + 4096;
+    const stderrLimitBytes = 4096;
 
     return new Promise((resolve) => {
       let settled = false;
-      const worker = new Worker(WORKER_SOURCE, {
-        eval: true,
-        workerData: input,
-        resourceLimits: {
-          maxOldGenerationSizeMb: input.memoryLimitMb,
+      let stdout = '';
+      let stderr = '';
+      const child = spawn(
+        process.execPath,
+        [`--max-old-space-size=${memoryLimitMb}`, '-e', CHILD_RUNNER_SOURCE],
+        {
+          cwd: tmpdir(),
+          env: { NODE_ENV: 'production' },
+          stdio: ['pipe', 'pipe', 'pipe'],
         },
-      });
+      );
+
+      const finish = (result: JavaScriptRunnerResult) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        if (!child.killed) child.kill('SIGKILL');
+        resolve(result);
+      };
 
       const timer = setTimeout(() => {
         finish({
@@ -89,49 +129,74 @@ export class JavaScriptRunnerService {
           error: 'Time limit exceeded',
           runtimeMs: input.timeoutMs,
         });
-      }, input.timeoutMs + 25);
+      }, input.timeoutMs + 50);
 
-      const finish = (result: JavaScriptRunnerResult) => {
-        if (settled) return;
-        settled = true;
-        clearTimeout(timer);
-        void worker.terminate();
-        resolve(result);
-      };
-
-      worker.once('message', (message: WorkerMessage) => {
-        const elapsedMs = Number((process.hrtime.bigint() - started) / 1000000n);
-        if (message.ok) {
+      child.stdout.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => {
+        stdout += chunk;
+        if (Buffer.byteLength(stdout, 'utf8') > stdoutLimitBytes) {
           finish({
-            verdict: Verdict.ACCEPTED,
-            actualOutput: message.actualOutput,
-            runtimeMs: Math.max(message.runtimeMs, elapsedMs),
+            verdict: Verdict.RUNTIME_ERROR,
+            error: 'Runner protocol output limit exceeded',
+            runtimeMs: Number((process.hrtime.bigint() - started) / 1000000n),
+          });
+        }
+      });
+
+      child.stderr.setEncoding('utf8');
+      child.stderr.on('data', (chunk: string) => {
+        stderr += chunk;
+        if (Buffer.byteLength(stderr, 'utf8') > stderrLimitBytes) {
+          stderr = stderr.slice(0, stderrLimitBytes);
+        }
+      });
+
+      child.once('error', (error) => {
+        finish({
+          verdict: Verdict.RUNTIME_ERROR,
+          error: error instanceof Error ? error.message : 'JavaScript runner failed',
+          runtimeMs: Number((process.hrtime.bigint() - started) / 1000000n),
+        });
+      });
+
+      child.once('close', (code, signal) => {
+        if (settled) return;
+
+        if (code !== 0 || signal) {
+          finish({
+            verdict: Verdict.RUNTIME_ERROR,
+            error: stderr.trim() || 'JavaScript runner exited unexpectedly',
+            runtimeMs: Number((process.hrtime.bigint() - started) / 1000000n),
           });
           return;
         }
-        finish({
-          verdict: message.verdict,
-          error: message.error,
-          runtimeMs: Math.max(message.runtimeMs, elapsedMs),
-        });
+
+        try {
+          const message = JSON.parse(stdout) as ChildMessage;
+          const elapsedMs = Number((process.hrtime.bigint() - started) / 1000000n);
+          if (message.ok) {
+            finish({
+              verdict: Verdict.ACCEPTED,
+              actualOutput: message.actualOutput,
+              runtimeMs: Math.max(message.runtimeMs, elapsedMs),
+            });
+            return;
+          }
+          finish({
+            verdict: message.verdict,
+            error: message.error,
+            runtimeMs: Math.max(message.runtimeMs, elapsedMs),
+          });
+        } catch {
+          finish({
+            verdict: Verdict.INTERNAL_ERROR,
+            error: 'Invalid JavaScript runner response',
+            runtimeMs: Number((process.hrtime.bigint() - started) / 1000000n),
+          });
+        }
       });
 
-      worker.once('error', (error) => {
-        finish({
-          verdict: Verdict.RUNTIME_ERROR,
-          error: error instanceof Error ? error.message : 'JavaScript worker failed',
-          runtimeMs: Number((process.hrtime.bigint() - started) / 1000000n),
-        });
-      });
-
-      worker.once('exit', (code) => {
-        if (settled || code === 0) return;
-        finish({
-          verdict: Verdict.RUNTIME_ERROR,
-          error: 'JavaScript worker exited unexpectedly',
-          runtimeMs: Number((process.hrtime.bigint() - started) / 1000000n),
-        });
-      });
+      child.stdin.end(JSON.stringify(input));
     });
   }
 }

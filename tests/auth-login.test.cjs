@@ -28,6 +28,7 @@ describe('login and access-token authentication', () => {
     user: { findUnique: jest.fn() },
     refreshSession: { create: jest.fn() },
     problemBookmark: { findMany: jest.fn() },
+    problemNote: { findMany: jest.fn(), findFirst: jest.fn() },
   };
   const publicUser = {
     id: '9a17a2d3-284d-4c52-8935-a27ee27cbd45',
@@ -67,8 +68,12 @@ describe('login and access-token authentication', () => {
     prisma.user.findUnique.mockReset();
     prisma.refreshSession.create.mockReset();
     prisma.problemBookmark.findMany.mockReset();
+    prisma.problemNote.findMany.mockReset();
+    prisma.problemNote.findFirst.mockReset();
     prisma.refreshSession.create.mockResolvedValue({ id: 'session-id' });
     prisma.problemBookmark.findMany.mockResolvedValue([]);
+    prisma.problemNote.findMany.mockResolvedValue([]);
+    prisma.problemNote.findFirst.mockResolvedValue(null);
     prisma.user.findUnique.mockImplementation(({ where }) => {
       if (where.email === storedUser.email || where.id === storedUser.id) return storedUser;
       return null;
@@ -203,6 +208,147 @@ describe('login and access-token authentication', () => {
         orderBy: { createdAt: 'desc' },
       }),
     );
+  });
+
+  it('returns saved private notes for the current user', async () => {
+    prisma.problemNote.findMany.mockResolvedValue([
+      {
+        id: 'note-id',
+        content: 'Remember lookup before insert. This note should be easy to scan later.',
+        createdAt: new Date('2026-09-12T10:00:00.000Z'),
+        updatedAt: new Date('2026-09-12T10:05:00.000Z'),
+        problem: {
+          id: 'problem-id',
+          title: 'Two Sum',
+          slug: 'two-sum',
+          difficulty: 'EASY',
+          tags: [{ tag: { id: 'tag-array-id', name: 'Array', slug: 'array' } }],
+          submissions: [{ verdict: 'ACCEPTED' }],
+        },
+      },
+    ]);
+    const token = await jwt.signAsync(
+      { sub: publicUser.id, email: publicUser.email, role: publicUser.role },
+      { secret: accessSecret, expiresIn: '15m' },
+    );
+
+    const response = await request(app.getHttpServer())
+      .get('/me/notes')
+      .set('Authorization', 'Bearer ' + token)
+      .expect(200);
+
+    expect(response.body).toEqual({
+      items: [
+        {
+          id: 'note-id',
+          contentPreview: 'Remember lookup before insert. This note should be easy to scan later.',
+          createdAt: '2026-09-12T10:00:00.000Z',
+          updatedAt: '2026-09-12T10:05:00.000Z',
+          problem: {
+            id: 'problem-id',
+            title: 'Two Sum',
+            slug: 'two-sum',
+            difficulty: 'EASY',
+            progressStatus: 'SOLVED',
+            tags: [{ id: 'tag-array-id', name: 'Array', slug: 'array' }],
+          },
+        },
+      ],
+    });
+    expect(prisma.problemNote.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: publicUser.id, problem: { isPublished: true } },
+        orderBy: { updatedAt: 'desc' },
+      }),
+    );
+  });
+
+  it('returns one private note with latest submitted code for that problem', async () => {
+    prisma.problemNote.findFirst.mockResolvedValue({
+      id: 'note-id',
+      content: 'Use hashmap for complements.',
+      createdAt: new Date('2026-09-12T10:00:00.000Z'),
+      updatedAt: new Date('2026-09-12T10:05:00.000Z'),
+      problem: {
+        id: 'problem-id',
+        title: 'Two Sum',
+        slug: 'two-sum',
+        description: 'Find two values that sum to target.',
+        difficulty: 'EASY',
+        timeLimitMs: 1000,
+        memoryLimitMb: 128,
+        tags: [{ tag: { id: 'tag-array-id', name: 'Array', slug: 'array' } }],
+        submissions: [
+          {
+            id: 'submission-id',
+            language: 'JAVASCRIPT',
+            sourceCode: 'function twoSum() { return [0, 1]; }',
+            status: 'COMPLETED',
+            verdict: 'ACCEPTED',
+            runtimeMs: 12,
+            createdAt: new Date('2026-09-12T11:00:00.000Z'),
+            completedAt: new Date('2026-09-12T11:00:01.000Z'),
+          },
+        ],
+      },
+    });
+    const token = await jwt.signAsync(
+      { sub: publicUser.id, email: publicUser.email, role: publicUser.role },
+      { secret: accessSecret, expiresIn: '15m' },
+    );
+
+    const response = await request(app.getHttpServer())
+      .get('/me/notes/two-sum')
+      .set('Authorization', 'Bearer ' + token)
+      .expect(200);
+
+    expect(response.body).toEqual({
+      note: {
+        id: 'note-id',
+        content: 'Use hashmap for complements.',
+        createdAt: '2026-09-12T10:00:00.000Z',
+        updatedAt: '2026-09-12T10:05:00.000Z',
+      },
+      problem: {
+        id: 'problem-id',
+        title: 'Two Sum',
+        slug: 'two-sum',
+        description: 'Find two values that sum to target.',
+        difficulty: 'EASY',
+        timeLimitMs: 1000,
+        memoryLimitMb: 128,
+        tags: [{ id: 'tag-array-id', name: 'Array', slug: 'array' }],
+      },
+      latestSubmission: {
+        id: 'submission-id',
+        language: 'JAVASCRIPT',
+        sourceCode: 'function twoSum() { return [0, 1]; }',
+        status: 'COMPLETED',
+        verdict: 'ACCEPTED',
+        runtimeMs: 12,
+        createdAt: '2026-09-12T11:00:00.000Z',
+        completedAt: '2026-09-12T11:00:01.000Z',
+      },
+    });
+    expect(prisma.problemNote.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { userId: publicUser.id, problem: { slug: 'two-sum', isPublished: true } },
+      }),
+    );
+  });
+
+  it('returns 404 when the current user has no private note for a problem', async () => {
+    const token = await jwt.signAsync(
+      { sub: publicUser.id, email: publicUser.email, role: publicUser.role },
+      { secret: accessSecret, expiresIn: '15m' },
+    );
+
+    const response = await request(app.getHttpServer())
+      .get('/me/notes/two-sum')
+      .set('Authorization', 'Bearer ' + token)
+      .expect(404);
+
+    expect(response.body.message).toBe('Problem note not found');
   });
 
   it.each([
