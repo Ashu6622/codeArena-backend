@@ -38,10 +38,23 @@ const problems = [
     difficulty: Difficulty.EASY,
     timeLimitMs: 1000,
     memoryLimitMb: 128,
-    starterCode: `function twoSum(nums, target) {
-  // Return the two matching indices.
-}`,
-    functionSignature: 'twoSum(nums: number[], target: number): number[]',
+    languages: [
+      {
+        language: Language.JAVASCRIPT,
+        starterCode: `function twoSum(nums, target) {\n  // Return the two matching indices.\n}`,
+        functionSignature: 'twoSum(nums: number[], target: number): number[]',
+      },
+      {
+        language: Language.PYTHON,
+        starterCode: `def twoSum(nums, target):\n    # Return the two matching indices.\n    pass`,
+        functionSignature: 'def twoSum(nums, target)',
+      },
+      {
+        language: Language.CPP,
+        starterCode: `#include <vector>\nusing namespace std;\n\nclass Solution {\npublic:\n    vector<int> twoSum(vector<int>& nums, int target) {\n        // Return the two matching indices.\n        return {};\n    }\n};`,
+        functionSignature: 'twoSum(nums: vector<int>, target: int): vector<int>',
+      },
+    ],
     tagSlugs: ['array', 'hash-map'],
     testCases: [
       {
@@ -68,10 +81,23 @@ const problems = [
     difficulty: Difficulty.EASY,
     timeLimitMs: 1000,
     memoryLimitMb: 128,
-    starterCode: `function isValid(s) {
-  // Return true when the brackets are balanced.
-}`,
-    functionSignature: 'isValid(s: string): boolean',
+    languages: [
+      {
+        language: Language.JAVASCRIPT,
+        starterCode: `function isValid(s) {\n  // Return true when the brackets are balanced.\n}`,
+        functionSignature: 'isValid(s: string): boolean',
+      },
+      {
+        language: Language.PYTHON,
+        starterCode: `def isValid(s):\n    # Return True when the brackets are balanced.\n    pass`,
+        functionSignature: 'def isValid(s)',
+      },
+      {
+        language: Language.CPP,
+        starterCode: `#include <string>\nusing namespace std;\n\nclass Solution {\npublic:\n    bool isValid(string s) {\n        // Return true when the brackets are balanced.\n        return false;\n    }\n};`,
+        functionSignature: 'isValid(s: string): bool',
+      },
+    ],
     tagSlugs: ['string', 'stack'],
     testCases: [
       { input: '{"s":"()[]{}"}', expectedOutput: 'true', isSample: true, order: 0 },
@@ -88,10 +114,23 @@ const problems = [
     difficulty: Difficulty.EASY,
     timeLimitMs: 1000,
     memoryLimitMb: 128,
-    starterCode: `function search(nums, target) {
-  // Return the target index, or -1.
-}`,
-    functionSignature: 'search(nums: number[], target: number): number',
+    languages: [
+      {
+        language: Language.JAVASCRIPT,
+        starterCode: `function search(nums, target) {\n  // Return the target index, or -1.\n}`,
+        functionSignature: 'search(nums: number[], target: number): number',
+      },
+      {
+        language: Language.PYTHON,
+        starterCode: `def search(nums, target):\n    # Return the target index, or -1.\n    pass`,
+        functionSignature: 'def search(nums, target)',
+      },
+      {
+        language: Language.CPP,
+        starterCode: `#include <vector>\nusing namespace std;\n\nclass Solution {\npublic:\n    int search(vector<int>& nums, int target) {\n        // Return the target index, or -1.\n        return -1;\n    }\n};`,
+        functionSignature: 'search(nums: vector<int>, target: int): int',
+      },
+    ],
     tagSlugs: ['array', 'binary-search'],
     testCases: [
       {
@@ -167,13 +206,11 @@ async function main(): Promise<void> {
       await transaction.problemLanguage.deleteMany({ where: { problemId: saved.id } });
       await transaction.testCase.deleteMany({ where: { problemId: saved.id } });
       await transaction.problemTag.deleteMany({ where: { problemId: saved.id } });
-      await transaction.problemLanguage.create({
-        data: {
+      await transaction.problemLanguage.createMany({
+        data: problem.languages.map((lang) => ({
           problemId: saved.id,
-          language: Language.JAVASCRIPT,
-          starterCode: problem.starterCode,
-          functionSignature: problem.functionSignature,
-        },
+          ...lang,
+        })),
       });
       await transaction.testCase.createMany({
         data: problem.testCases.map((testCase) => ({ problemId: saved.id, ...testCase })),

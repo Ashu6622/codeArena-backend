@@ -21,6 +21,7 @@ enum Difficulty {
 enum Language {
   JAVASCRIPT
   PYTHON
+  CPP
 }
 
 enum SubmissionStatus {

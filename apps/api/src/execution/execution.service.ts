@@ -4,6 +4,8 @@ import { Language, Verdict } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { RunCodeDto } from './dto/run-code.dto';
 import { JavaScriptRunnerService } from './javascript-runner.service';
+import { PythonRunnerService } from './python-runner.service';
+import { CppRunnerService } from './cpp-runner.service';
 
 type Comparable = { comparable: string; display: string };
 
@@ -13,11 +15,17 @@ export class ExecutionService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ConfigService) private readonly config: ConfigService,
     @Inject(JavaScriptRunnerService) private readonly javascriptRunner: JavaScriptRunnerService,
+    @Inject(PythonRunnerService) private readonly pythonRunner: PythonRunnerService,
+    @Inject(CppRunnerService) private readonly cppRunner: CppRunnerService,
   ) {}
 
   async run(dto: RunCodeDto) {
-    if (dto.language !== Language.JAVASCRIPT) {
-      throw new BadRequestException('Only JavaScript execution is supported in V1');
+    if (
+      dto.language !== Language.JAVASCRIPT &&
+      dto.language !== Language.PYTHON &&
+      dto.language !== Language.CPP
+    ) {
+      throw new BadRequestException('Unsupported language for execution');
     }
 
     const problem = await this.prisma.problem.findFirst({
@@ -67,14 +75,35 @@ export class ExecutionService {
     for (const testCase of problem.testCases) {
       const args = this.createArguments(testCase.input, signature.argumentNames);
       const expected = this.normalize(testCase.expectedOutput);
-      const result = await this.javascriptRunner.run({
-        code: dto.code,
-        functionName: signature.functionName,
-        args,
-        timeoutMs,
-        memoryLimitMb,
-        maxOutputBytes,
-      });
+      const result =
+        dto.language === Language.JAVASCRIPT
+          ? await this.javascriptRunner.run({
+              code: dto.code,
+              functionName: signature.functionName,
+              args,
+              timeoutMs,
+              memoryLimitMb,
+              maxOutputBytes,
+            })
+          : dto.language === Language.PYTHON
+            ? await this.pythonRunner.run({
+                code: dto.code,
+                functionName: signature.functionName,
+                args,
+                timeoutMs,
+                memoryLimitMb,
+                maxOutputBytes,
+              })
+            : await this.cppRunner.run({
+                code: dto.code,
+                functionName: signature.functionName,
+                signature: languageConfig.functionSignature ?? undefined,
+                args,
+                timeoutMs,
+                memoryLimitMb,
+                maxOutputBytes,
+              });
+
       const passed =
         result.verdict === Verdict.ACCEPTED && result.actualOutput === expected.comparable;
       results.push({
@@ -117,7 +146,7 @@ export class ExecutionService {
     functionName: string;
     argumentNames: string[];
   } {
-    const match = signature.match(/^([A-Za-z_$][\w$]*)\(([^)]*)\)/);
+    const match = signature.match(/^(?:def\s+|function\s+)?([A-Za-z_$][\w$]*)\(([^)]*)\)/);
     if (!match) throw new BadRequestException('Invalid function signature');
     const argumentNames = match[2]
       .split(',')

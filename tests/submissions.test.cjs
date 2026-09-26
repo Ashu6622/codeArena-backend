@@ -242,7 +242,7 @@ describe('POST /submissions', () => {
     await request(app.getHttpServer())
       .post('/submissions')
       .set('Authorization', `Bearer ${token}`)
-      .send({ problemSlug: 'two-sum', language: 'PYTHON', code: 'print(1)' })
+      .send({ problemSlug: 'two-sum', language: 'RUBY', code: 'puts 1' })
       .expect(400);
 
     await request(app.getHttpServer())

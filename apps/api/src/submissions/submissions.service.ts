@@ -6,6 +6,8 @@ import { CreateSubmissionDto } from './dto/create-submission.dto';
 import { ListSubmissionsQueryDto } from './dto/list-submissions-query.dto';
 import { SubmissionActivityQueryDto } from './dto/submission-activity-query.dto';
 import { JavaScriptRunnerService } from '../execution/javascript-runner.service';
+import { PythonRunnerService } from '../execution/python-runner.service';
+import { CppRunnerService } from '../execution/cpp-runner.service';
 
 type Comparable = { comparable: string; display: string };
 
@@ -28,6 +30,8 @@ export class SubmissionsService {
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(ConfigService) private readonly config: ConfigService,
     @Inject(JavaScriptRunnerService) private readonly javascriptRunner: JavaScriptRunnerService,
+    @Inject(PythonRunnerService) private readonly pythonRunner: PythonRunnerService,
+    @Inject(CppRunnerService) private readonly cppRunner: CppRunnerService,
   ) {}
 
   async list(userId: string, query: ListSubmissionsQueryDto) {
@@ -178,8 +182,12 @@ export class SubmissionsService {
   }
 
   async create(userId: string, dto: CreateSubmissionDto) {
-    if (dto.language !== Language.JAVASCRIPT) {
-      throw new BadRequestException('Only JavaScript submissions are supported in V1');
+    if (
+      dto.language !== Language.JAVASCRIPT &&
+      dto.language !== Language.PYTHON &&
+      dto.language !== Language.CPP
+    ) {
+      throw new BadRequestException('Unsupported language for submission');
     }
 
     const problem = await this.prisma.problem.findFirst({
@@ -242,14 +250,35 @@ export class SubmissionsService {
 
     const results: JudgedTestCase[] = [];
     for (const testCase of preparedTestCases) {
-      const result = await this.javascriptRunner.run({
-        code: dto.code,
-        functionName: signature.functionName,
-        args: testCase.args,
-        timeoutMs,
-        memoryLimitMb,
-        maxOutputBytes,
-      });
+      const result =
+        dto.language === Language.JAVASCRIPT
+          ? await this.javascriptRunner.run({
+              code: dto.code,
+              functionName: signature.functionName,
+              args: testCase.args,
+              timeoutMs,
+              memoryLimitMb,
+              maxOutputBytes,
+            })
+          : dto.language === Language.PYTHON
+            ? await this.pythonRunner.run({
+                code: dto.code,
+                functionName: signature.functionName,
+                args: testCase.args,
+                timeoutMs,
+                memoryLimitMb,
+                maxOutputBytes,
+              })
+            : await this.cppRunner.run({
+                code: dto.code,
+                functionName: signature.functionName,
+                signature: languageConfig.functionSignature ?? undefined,
+                args: testCase.args,
+                timeoutMs,
+                memoryLimitMb,
+                maxOutputBytes,
+              });
+
       const passed =
         result.verdict === Verdict.ACCEPTED && result.actualOutput === testCase.expected.comparable;
       results.push({
@@ -354,7 +383,7 @@ export class SubmissionsService {
     functionName: string;
     argumentNames: string[];
   } {
-    const match = signature.match(/^([A-Za-z_$][\w$]*)\(([^)]*)\)/);
+    const match = signature.match(/^(?:def\s+|function\s+)?([A-Za-z_$][\w$]*)\(([^)]*)\)/);
     if (!match) throw new BadRequestException('Invalid function signature');
     const argumentNames = match[2]
       .split(',')

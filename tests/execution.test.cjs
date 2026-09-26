@@ -209,7 +209,7 @@ describe('POST /run', () => {
   it('rejects unsupported languages and malformed payloads before running code', async () => {
     await request(app.getHttpServer())
       .post('/run')
-      .send({ problemSlug: 'two-sum', language: 'PYTHON', code: 'print(1)' })
+      .send({ problemSlug: 'two-sum', language: 'RUBY', code: 'puts 1' })
       .expect(400);
 
     await request(app.getHttpServer())
