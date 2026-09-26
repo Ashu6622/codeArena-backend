@@ -10,8 +10,12 @@ export const envValidationSchema = Joi.object({
 
   JWT_ACCESS_SECRET: Joi.string().min(32).required(),
   JWT_REFRESH_SECRET: Joi.string().min(32).required(),
-  JWT_ACCESS_EXPIRES_IN: Joi.string().default('15m'),
-  JWT_REFRESH_EXPIRES_IN: Joi.string().default('7d'),
+  JWT_ACCESS_EXPIRES_IN: Joi.string()
+    .pattern(/^\d{1,5}[smhd]$/)
+    .default('15m'),
+  JWT_REFRESH_EXPIRES_IN: Joi.string()
+    .pattern(/^\d{1,5}[smhd]$/)
+    .default('7d'),
 
   EXECUTION_TIMEOUT_MS: Joi.number().integer().min(100).max(30000).default(3000),
   EXECUTION_MEMORY_LIMIT_MB: Joi.number().integer().min(16).max(1024).default(128),
