@@ -9,6 +9,8 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+  app.setGlobalPrefix('api');
+
   app.enableShutdownHooks();
   const configService = app.get(ConfigService);
   const port = configService.getOrThrow<number>('port');

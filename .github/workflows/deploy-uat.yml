@@ -1,0 +1,87 @@
+name: CI/CD Backend UAT Auto Deployment
+
+on:
+  push:
+    branches:
+      - uat
+
+jobs:
+  quality-and-test:
+    name: Run Quality Gate & Full Test Suite
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Test & Validate Backend
+        run: |
+          cd codeArena-backend || true
+          npm ci
+          npm run typecheck
+          npm run lint
+          npm test
+
+  deploy-to-ec2:
+    name: Deploy Backend to EC2
+    needs: quality-and-test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Execute Remote SSH Commands on EC2
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            set -e
+
+            echo "=== 1. Pulling latest Backend UAT branch ==="
+            cd ~/codeArena-backend
+            git fetch origin
+            git checkout uat
+            git pull origin uat
+
+            echo "=== 2. Building Backend & Deploying DB Migrations ==="
+            npm install
+            npm run db:deploy
+            npm run build
+
+            echo "=== 3. Building Runner Docker Image ==="
+            docker build -t codearena-js-runner ./docker/runners/javascript
+
+            echo "=== 4. Restarting PM2 Backend Service ==="
+            pm2 restart codearena-api --update-env || pm2 restart ecosystem.config.js --update-env
+            pm2 save
+
+            echo "=== 4. Running Post-Deployment Health Check ==="
+            sleep 5
+            curl --fail --retry 3 --retry-delay 3 http://127.0.0.1:4000/api/health || (echo "Backend Health Check Failed!" && exit 1)
+
+            echo "=== Backend Deployment Successfully Completed! ==="
+
+      - name: Send Email Notification (Success or Failure)
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.MAIL_USERNAME }}
+          password: ${{ secrets.MAIL_PASSWORD }}
+          subject: "CodeArena Backend UAT Deployment: ${{ job.status == 'success' && 'SUCCESS ✅' || 'FAILED ❌' }}"
+          to: rashu2879@gmail.com
+          from: CodeArena CI/CD <${{ secrets.MAIL_USERNAME }}>
+          body: |
+            Backend Deployment Status: ${{ job.status == 'success' && 'SUCCESS ✅' || 'FAILED ❌' }}
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Commit SHA: ${{ github.sha }}
+            Triggered By: ${{ github.actor }}
+
+            Live Backend API: https://prepgo.in/api/health
